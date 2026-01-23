@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<body>
+
+<h2>ESP32 OLED Bluetooth Editor</h2>
+
+<button onclick="connect()">Connect to ESP32</button><br><br>
+
+<input id="text" type="text" placeholder="Type text" disabled>
+<button onclick="sendText()" disabled id="sendBtn">Send</button>
+
+<script>
+let characteristic;
+
+async function connect() {
+  const device = await navigator.bluetooth.requestDevice({
+    filters: [{ name: 'ESP32_OLED' }],
+    optionalServices: ['12345678-1234-1234-1234-1234567890ab']
+  });
+
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService('12345678-1234-1234-1234-1234567890ab');
+  characteristic = await service.getCharacteristic('abcd1234-5678-1234-5678-abcdef123456');
+
+  document.getElementById("text").disabled = false;
+  document.getElementById("sendBtn").disabled = false;
+}
+
+async function sendText() {
+  const text = document.getElementById("text").value;
+  const encoder = new TextEncoder();
+  await characteristic.writeValue(encoder.encode(text));
+}
+</script>
+
+</body>
+</html>
