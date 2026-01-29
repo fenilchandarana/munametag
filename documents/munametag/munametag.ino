@@ -20,7 +20,7 @@ BLEServer* pServer = nullptr;
 BLECharacteristic* pCharacteristic = nullptr;
 
 /* ---------- State ---------- */
-String currentText = "munametag";   // default text
+String currentText = "aaaaaaggggggg";   // default text
 bool deviceConnected = false;
 uint16_t connId = 0;
 
@@ -32,7 +32,7 @@ void drawText(const String& text) {
   display.clearDisplay();
   display.setTextSize(2);
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 20);
+  display.setCursor(0, 10);
   display.println(text);
   display.display();
 }
@@ -43,7 +43,7 @@ class ServerCallbacks : public BLEServerCallbacks {
     deviceConnected = true;
     connId = param->connect.conn_id;
 
-    // start 10s disconnect timer ON CONNECT
+    // start 10s disconnect timer
     disconnectAt = millis() + 10000;
     disconnectScheduled = true;
   }
@@ -51,15 +51,16 @@ class ServerCallbacks : public BLEServerCallbacks {
   void onDisconnect(BLEServer* server) override {
     deviceConnected = false;
     disconnectScheduled = false;
-    BLEDevice::startAdvertising(); // make ESP available again
+    delay(200);
+    BLEDevice::startAdvertising();   // restart advertising
   }
 };
 
 class CharacteristicCallbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic* characteristic) override {
-    std::string value = characteristic->getValue();
+    String value = characteristic->getValue();
     if (value.length() > 0) {
-      currentText = String(value.c_str());
+      currentText = value;
       drawText(currentText);
     }
   }
@@ -68,14 +69,15 @@ class CharacteristicCallbacks : public BLECharacteristicCallbacks {
 void setup() {
   Serial.begin(115200);
 
-  /* OLED */
+  /* ---------- OLED ---------- */
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    while (true);
+    while (true); // halt if OLED fails
   }
-  drawText(currentText);  // show default text on boot
+  drawText(currentText);
 
-  /* BLE */
-  BLEDevice::init("ESP32_OLED");
+  /* ---------- BLE ---------- */
+  BLEDevice::init("ESP32_OLED1");   // 🔹 Change name safely here
+
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
 
@@ -90,12 +92,18 @@ void setup() {
   pCharacteristic->addDescriptor(new BLE2902());
 
   service->start();
+
+  /* ---------- Advertising (IMPORTANT) ---------- */
+  BLEAdvertising* advertising = BLEDevice::getAdvertising();
+  advertising->addServiceUUID(SERVICE_UUID);
+  advertising->setScanResponse(true);
+  advertising->setMinPreferred(0x06);   // stable setting
   BLEDevice::startAdvertising();
 }
 
 void loop() {
   if (disconnectScheduled && deviceConnected && millis() >= disconnectAt) {
-    pServer->disconnect(connId);   // force disconnect
+    pServer->disconnect(connId);   // force disconnect after 10s
     disconnectScheduled = false;
   }
 }
