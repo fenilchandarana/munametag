@@ -20,12 +20,13 @@ BLEServer* pServer = nullptr;
 BLECharacteristic* pCharacteristic = nullptr;
 
 /* ---------- State ---------- */
-String currentText = "aaaaaaggggggg";   // default text
+String currentText = "munametag";   // default text
 bool deviceConnected = false;
 uint16_t connId = 0;
 
 unsigned long disconnectAt = 0;
 bool disconnectScheduled = false;
+bool needsAdvertisingRestart = false;
 
 /* ---------- OLED helper ---------- */
 void drawText(const String& text) {
@@ -42,68 +43,74 @@ class ServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* server, esp_ble_gatts_cb_param_t* param) override {
     deviceConnected = true;
     connId = param->connect.conn_id;
-
-    // start 10s disconnect timer
     disconnectAt = millis() + 10000;
     disconnectScheduled = true;
   }
-
   void onDisconnect(BLEServer* server) override {
     deviceConnected = false;
     disconnectScheduled = false;
-    delay(200);
-    BLEDevice::startAdvertising();   // restart advertising
+    Serial.println("Disconnected!");
+    // DON'T restart advertising here — just set a flag
+    needsAdvertisingRestart = true;
   }
 };
 
 class CharacteristicCallbacks : public BLECharacteristicCallbacks {
-  void onWrite(BLECharacteristic* characteristic) override {
-    String value = characteristic->getValue();
-    if (value.length() > 0) {
-      currentText = value;
-      drawText(currentText);
+    void onWrite(BLECharacteristic* characteristic) override {
+      String value = characteristic->getValue();
+      if (value.length() > 0) {
+        currentText = value;
+        drawText(currentText);
+      }
     }
-  }
 };
 
 void setup() {
   Serial.begin(115200);
-
   /* ---------- OLED ---------- */
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    while (true); // halt if OLED fails
+    while (true);
   }
   drawText(currentText);
-
   /* ---------- BLE ---------- */
-  BLEDevice::init("ESP32_OLED1");   // 🔹 Change name safely here
-
+  BLEDevice::init("ESP32_OLED1");       //device name
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new ServerCallbacks());
-
   BLEService* service = pServer->createService(SERVICE_UUID);
-
   pCharacteristic = service->createCharacteristic(
-    CHARACTERISTIC_UUID,
-    BLECharacteristic::PROPERTY_WRITE
-  );
-
+                      CHARACTERISTIC_UUID,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
   pCharacteristic->setCallbacks(new CharacteristicCallbacks());
   pCharacteristic->addDescriptor(new BLE2902());
-
   service->start();
-
-  /* ---------- Advertising (IMPORTANT) ---------- */
+  /* ---------- Advertising ---------- */
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
   advertising->addServiceUUID(SERVICE_UUID);
   advertising->setScanResponse(true);
-  advertising->setMinPreferred(0x06);   // stable setting
+  advertising->setMinPreferred(0x06);
+  BLEAdvertisementData scanResponse;
+  scanResponse.setName("ESP32_OLED2");
+  advertising->setScanResponseData(scanResponse);
   BLEDevice::startAdvertising();
 }
 
 void loop() {
+  // Force disconnect after 10s
   if (disconnectScheduled && deviceConnected && millis() >= disconnectAt) {
-    pServer->disconnect(connId);   // force disconnect after 10s
+    pServer->disconnect(connId);
     disconnectScheduled = false;
+  }
+
+  // Restart advertising safely from loop
+  if (needsAdvertisingRestart) {
+    needsAdvertisingRestart = false;
+    delay(500);
+    BLEAdvertising* advertising = BLEDevice::getAdvertising();
+    BLEAdvertisementData scanResponse;
+    scanResponse.setName("ESP32_OLED2");
+    advertising->setScanResponseData(scanResponse);
+    BLEDevice::startAdvertising();
+    Serial.println("Advertising restarted!");
   }
 }

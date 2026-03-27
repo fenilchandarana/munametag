@@ -9,13 +9,29 @@
 <input id="text" type="text" placeholder="Enter Text">
 <button onclick="sendText()">Send</button>
 
+<p id="status">Status: Disconnected</p>
+
 <script>
 let characteristic;
+let currentDevice;
 
 async function connect() {
+  // Clean up previous connection if exists
+  if (currentDevice && currentDevice.gatt.connected) {
+    currentDevice.gatt.disconnect();
+  }
+
   const device = await navigator.bluetooth.requestDevice({
     acceptAllDevices: true,
     optionalServices: ['12345678-1234-1234-1234-1234567890ab']
+  });
+
+  currentDevice = device;
+
+  // Handle ESP's 10s auto-disconnect
+  device.addEventListener('gattserverdisconnected', () => {
+    characteristic = null;
+    document.getElementById("status").innerText = "Status: Disconnected (ESP timed out). Click Connect to reconnect.";
   });
 
   const server = await device.gatt.connect();
@@ -25,11 +41,13 @@ async function connect() {
   characteristic = await service.getCharacteristic(
     'abcd1234-5678-1234-5678-abcdef123456'
   );
+
+  document.getElementById("status").innerText = "Status: Connected! You have 10 seconds.";
 }
 
 async function sendText() {
   if (!characteristic) {
-    alert("Not connected");
+    alert("Not connected. Please connect first.");
     return;
   }
 
